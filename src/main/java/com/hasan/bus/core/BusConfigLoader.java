@@ -29,12 +29,18 @@ public final class BusConfigLoader {
 			config.put("port", require(resolve("RABBIT_PORT", "bus.rabbit.port", p), "bus.rabbit.port / RABBIT_PORT"));
 			config.put("user", require(resolve("RABBIT_USER", "bus.rabbit.user", p), "bus.rabbit.user / RABBIT_USER"));
 			config.put("pass", require(resolve("RABBIT_PASS", "bus.rabbit.pass", p), "bus.rabbit.pass / RABBIT_PASS"));
-			config.put("vhost",require(resolve("RABBIT_VHOST", "bus.rabbit.vhost", p), "bus.rabbit.vhost / RABBIT_VHOST"));
+			config.put("vhost", require(resolve("RABBIT_VHOST", "bus.rabbit.vhost", p), "bus.rabbit.vhost / RABBIT_VHOST"));
+
 		} else if ("kafka".equalsIgnoreCase(broker)) {
-			config.put("bootstrap", require(resolve("KAFKA_BOOTSTRAP", "bus.kafka.bootstrap", p),"bus.kafka.bootstrap / KAFKA_BOOTSTRAP"));
+			config.put("bootstrap", require(resolve("KAFKA_BOOTSTRAP", "bus.kafka.bootstrap", p), "bus.kafka.bootstrap / KAFKA_BOOTSTRAP"));
 			config.put("groupId", require(resolve("KAFKA_GROUP", "bus.kafka.groupId", p), "bus.kafka.groupId / KAFKA_GROUP"));
+
+		} else if ("redpanda".equalsIgnoreCase(broker)) {
+			config.put("bootstrap", require(resolve("REDPANDA_BOOTSTRAP", "bus.redpanda.bootstrap", p), "bus.redpanda.bootstrap / REDPANDA_BOOTSTRAP"));
+			config.put("groupId", require(resolve("REDPANDA_GROUP", "bus.redpanda.groupId", p), "bus.redpanda.groupId / REDPANDA_GROUP"));
+
 		} else {
-			throw new IllegalStateException("Unsupported bus.broker: " + broker + " (expected: kafka or rabbit)");
+			throw new IllegalStateException("Unsupported bus.broker: " + broker + " (expected: kafka, rabbit or redpanda)");
 		}
 
 		return config;

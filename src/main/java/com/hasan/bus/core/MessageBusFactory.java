@@ -16,6 +16,10 @@ public final class MessageBusFactory {
         if ("kafka".equalsIgnoreCase(config.getBroker())) {
             return KafkaBus.fromConfig(config);
         }
+        
+        if ("redpanda".equalsIgnoreCase(config.getBroker())) {
+            return KafkaBus.fromConfig(config);
+        }
 
         throw new IllegalArgumentException("Unknown broker: " + config.getBroker());
     }
