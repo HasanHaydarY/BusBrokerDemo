@@ -1,5 +1,6 @@
 package com.hasan.bus.kafka;
 
+import com.hasan.bus.core.*;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -7,79 +8,93 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
-import com.hasan.bus.core.*;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class KafkaBus implements MessageBus {
+/**
+ * Kafka ve Redpanda için ortak implementasyon.
+ * Redpanda, Kafka API'si ile tam uyumlu olduğundan bu sınıf her ikisi için de kullanılır.
+ *
+ * NOT (1): producer.send(rec).get() — senkron gönderim, demo için uygundur.
+ *          Production'da async + callback tercih edilmeli.
+ *
+ * NOT (2): Retry sayısı sabit 1. İleride BusConfig'den okunabilir hale getirilebilir.
+ *
+ * NOT (3): Consumer thread daemon olarak açılıyor. Subscription.close() çağrılmazsa
+ *          uygulama kapanırken mesaj kaybı olabilir.
+ */
+public class KafkaBus extends BaseBus {
 
-    private final String bootstrap;
-    private final String serviceName;
-    private final String baseGroupId;
-    private final Producer<String, String> producer;
+    private final BusConfig config;
 
-    private KafkaBus(String bootstrap, String serviceName, String baseGroupId, Producer<String, String> producer) {
-        this.bootstrap = bootstrap;
-        this.serviceName = serviceName;
-        this.baseGroupId = baseGroupId;
-        this.producer = producer;
+    private String bootstrap;
+    private String serviceName;
+    private String baseGroupId;
+    private Producer<String, String> producer;
+
+    public KafkaBus(BusConfig config) {
+        this.config = config;
     }
 
-    public static KafkaBus fromConfig(BusConfig config) {
-        String bootstrap = require(config, "bootstrap");
-        String serviceName = require(config, "serviceName");
-        String baseGroupId = require(config, "groupId");
+    @Override
+    protected void doOpen() throws Exception {
+        this.bootstrap   = require(config, "bootstrap");
+        this.serviceName = require(config, "serviceName");
+        this.baseGroupId = require(config, "groupId");
 
         Properties p = new Properties();
-        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
-        p.put(ProducerConfig.ACKS_CONFIG, "all");
-        p.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
-        p.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,      bootstrap);
+        p.put(ProducerConfig.ACKS_CONFIG,                   "all");
+        p.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,     "true");
+        p.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,   StringSerializer.class.getName());
         p.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-        Producer<String, String> producer = new KafkaProducer<>(p);
-        return new KafkaBus(bootstrap, serviceName, baseGroupId, producer);
+        this.producer = new KafkaProducer<>(p);
+    }
+
+    @Override
+    protected void doClose() {
+        try { producer.close(); } catch (Exception ignored) {}
     }
 
     @Override
     public void publish(String channelName, Envelope envelope) throws Exception {
-        String topic = toTopic(channelName);
-
-        envelope.source = this.serviceName;
+        requireOpen();
 
         if (envelope.target == null || envelope.target.trim().isEmpty()) {
-            throw new IllegalArgumentException("Envelope.target is required (expected 'app' or 'iot')");
+            throw new IllegalArgumentException("Envelope.target is required");
         }
         if (envelope.type == null || envelope.type.trim().isEmpty()) {
             throw new IllegalArgumentException("Envelope.type is required");
         }
 
+        envelope.source = this.serviceName;
+
         String json = JsonCodec.toJson(envelope);
-        String key = envelope.target.trim().toLowerCase();
+        String key  = envelope.target.trim().toLowerCase();
 
-        ProducerRecord<String, String> rec = new ProducerRecord<>(topic, key, json);
-
-        producer.send(rec).get(); // demo: sync
+        ProducerRecord<String, String> rec = new ProducerRecord<>(toTopic(channelName), key, json);
+        producer.send(rec).get(); // NOT (1)
     }
 
     @Override
     public Subscription subscribe(String channelName, MessageHandler handler) throws Exception {
-        String topic = toTopic(channelName);
-        String dlqTopic = toDlqTopic(channelName);
+        requireOpen();
 
-        String groupId = baseGroupId + "." + serviceName + "." + channelName;
+        String topic    = toTopic(channelName);
+        String dlqTopic = toDlqTopic(channelName);
+        String groupId  = baseGroupId + "." + serviceName + "." + channelName;
 
         Properties c = new Properties();
-        c.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
-        c.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        c.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-        c.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        c.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        c.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,        bootstrap);
+        c.put(ConsumerConfig.GROUP_ID_CONFIG,                 groupId);
+        c.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,       "false");
+        c.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,        "earliest");
+        c.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,   StringDeserializer.class.getName());
         c.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        c.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "100");
+        c.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG,         "100");
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(c);
         consumer.subscribe(Collections.singletonList(topic));
@@ -100,14 +115,14 @@ public class KafkaBus implements MessageBus {
                             commitOne(consumer, r);
                             continue;
                         }
+
                         String target = (env.target == null) ? "" : env.target.trim().toLowerCase();
                         if (!target.equals(this.serviceName.toLowerCase())) {
                             commitOne(consumer, r);
                             continue;
                         }
 
-                        int retry = getIntHeader(r.headers(), "x-retry", 0);
-
+                        int     retry = getIntHeader(r.headers(), "x-retry", 0);
                         boolean ok;
                         try {
                             ok = handler.onMessage(env);
@@ -120,19 +135,19 @@ public class KafkaBus implements MessageBus {
                             continue;
                         }
 
+                        // NOT (2): retry sabit 1
                         if (retry < 1) {
                             republishWithRetry(topic, r.key(), env, retry + 1);
-                            commitOne(consumer, r);
                         } else {
                             sendEnvelopeToDlq(dlqTopic, r.key(), env, "handler-failed-after-retry");
-                            commitOne(consumer, r);
                         }
+                        commitOne(consumer, r);
                     }
                 }
             } finally {
                 try { consumer.close(); } catch (Exception ignored) {}
             }
-        }, "kafka-consumer-" + serviceName + "-" + channelName);
+        }, "kafka-consumer-" + serviceName + "-" + channelName); // NOT (3)
 
         t.setDaemon(true);
         t.start();
@@ -140,24 +155,19 @@ public class KafkaBus implements MessageBus {
         return () -> {
             running.set(false);
             try { consumer.wakeup(); } catch (Exception ignored) {}
-            try { t.join(1500); } catch (Exception ignored) {}
+            try { t.join(1500);      } catch (Exception ignored) {}
         };
     }
 
-    @Override
-    public void close() throws Exception {
-        try { producer.close(); } catch (Exception ignored) {}
-    }
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private void republishWithRetry(String topic, String key, Envelope env, int retry) {
         try {
             env.source = this.serviceName;
-
             String json = JsonCodec.toJson(env);
             ProducerRecord<String, String> rec = new ProducerRecord<>(topic, key, json);
-            rec.headers().add("x-retry", Integer.toString(retry).getBytes(StandardCharsets.UTF_8));
+            rec.headers().add("x-retry",       Integer.toString(retry).getBytes(StandardCharsets.UTF_8));
             rec.headers().add("x-original-ts", Long.toString(System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8));
-
             producer.send(rec).get();
         } catch (Exception ignored) {}
     }
@@ -180,7 +190,7 @@ public class KafkaBus implements MessageBus {
     }
 
     private static void commitOne(KafkaConsumer<String, String> consumer, ConsumerRecord<String, String> r) {
-        TopicPartition tp = new TopicPartition(r.topic(), r.partition());
+        TopicPartition    tp = new TopicPartition(r.topic(), r.partition());
         OffsetAndMetadata om = new OffsetAndMetadata(r.offset() + 1);
         consumer.commitSync(Collections.singletonMap(tp, om));
     }
@@ -195,13 +205,8 @@ public class KafkaBus implements MessageBus {
         }
     }
 
-    private static String toTopic(String channelName) {
-        return "bus." + channelName;
-    }
-
-    private static String toDlqTopic(String channelName) {
-        return "bus." + channelName + ".dlq";
-    }
+    private static String toTopic(String channelName)    { return "bus." + channelName; }
+    private static String toDlqTopic(String channelName) { return "bus." + channelName + ".dlq"; }
 
     private static String require(BusConfig config, String key) {
         String v = config.get(key);

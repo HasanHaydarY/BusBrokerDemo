@@ -5,22 +5,23 @@ import com.hasan.bus.rabbit.RabbitBus;
 
 public final class MessageBusFactory {
 
-    private MessageBusFactory() {}
+    private MessageBusFactory() {
+    }
 
-    public static MessageBus create(BusConfig config) throws Exception {
+    public static MessageBus create(BusConfig config) {
+        String broker = config.getBroker().toLowerCase();
 
-        if ("rabbit".equalsIgnoreCase(config.getBroker())) {
-            return RabbitBus.fromConfig(config);
+        if ("rabbit".equals(broker)) {
+            return new RabbitBus(config);
+        }
+        if ("kafka".equals(broker)) {
+            return new KafkaBus(config);
+        }
+        if ("redpanda".equals(broker)) {
+            return new KafkaBus(config);
         }
 
-        if ("kafka".equalsIgnoreCase(config.getBroker())) {
-            return KafkaBus.fromConfig(config);
-        }
-        
-        if ("redpanda".equalsIgnoreCase(config.getBroker())) {
-            return KafkaBus.fromConfig(config);
-        }
-
-        throw new IllegalArgumentException("Unknown broker: " + config.getBroker());
+        throw new IllegalArgumentException("Unknown broker: " + broker
+                + " (expected: kafka, rabbit or redpanda)");
     }
 }
