@@ -20,7 +20,7 @@ public abstract class BaseBus implements MessageBus {
     @Override
     public final void close() throws Exception {
         if (!open) {
-            return; // idempotent
+            return;
         }
         try {
             doClose();

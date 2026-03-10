@@ -26,7 +26,7 @@ public class BusTest {
         bus.open();
         System.out.println("[TEST] Connection opened.");
 
-        try {
+//        try {
             // Mesaj 1 — sıcaklık telemetrisi
             Map<String, Object> payload1 = new LinkedHashMap<>();
             payload1.put("deviceId", 1);
@@ -60,10 +60,10 @@ public class BusTest {
             bus.publish("events", e3);
             System.out.println("[TEST] Published #3 — event.alarm, deviceId=3");
 
-        } 
-        finally {
-            bus.close();
-            System.out.println("[TEST] Connection closed.");
-        }
+//        } 
+//        finally {
+//            bus.close();
+//            System.out.println("[TEST] Connection closed.");
+//        }
     }
 }

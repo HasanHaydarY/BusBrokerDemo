@@ -6,17 +6,6 @@ import com.hasan.bus.core.Envelope;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * RabbitMQ implementasyonu.
- *
- * NOT (1): subscribe() her çağrıda yeni bir Channel açar — RabbitMQ best practice.
- *
- * NOT (2): basicNack ile requeue=true sonsuz döngüye yol açabilir.
- *          Production'da Dead Letter Exchange (DLX) kurulumu önerilir.
- *
- * NOT (3): Subscription.close() içinde queueDelete() var. Birden fazla consumer
- *          aynı queue'yu dinliyorsa bu satırı kaldır.
- */
 public class RabbitBus extends BaseBus {
 
     private final BusConfig config;
@@ -65,6 +54,14 @@ public class RabbitBus extends BaseBus {
 
         String exchange = toExchange(channelName);
         channel.exchangeDeclare(exchange, BuiltinExchangeType.TOPIC, true, false, null);
+        
+        // queue oluştur PRODUCER DA ÖNERİLMEZ
+        String queueName = "q." + serviceName + "." + channelName;
+        channel.queueDeclare(queueName, true, false, false, null);
+
+        // bind
+        String bindKey = "*.to." + serviceName + ".#";
+        channel.queueBind(queueName, exchange, bindKey);
 
         envelope.source = this.serviceName;
         String target     = envelope.target.trim().toLowerCase();
