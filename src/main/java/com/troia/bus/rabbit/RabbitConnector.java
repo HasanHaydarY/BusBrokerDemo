@@ -5,7 +5,7 @@ import com.troia.bus.core.BusConnection;
 
 public class RabbitConnector implements BusConnector {
 
-    static final long DEFAULT_CONFIRM_TIMEOUT_MS = 5_000;
+    static final long DEFAULT_CONFIRM_TIMEOUT_MS = 10_000;
 
     private final String host;
     private final int    port;
@@ -48,6 +48,16 @@ public class RabbitConnector implements BusConnector {
     @Override
     public BusConnection connect() throws Exception {
         return new RabbitConnection(host, port, username, password, vhost, serviceName, confirmTimeoutMs);
+    }
+
+    @Override
+    public BusConnection connectWithTimeout(long confirmTimeoutMs) throws Exception {
+        return new RabbitConnection(host, port, username, password, vhost, serviceName, confirmTimeoutMs);
+    }
+
+    @Override
+    public long defaultConfirmTimeoutMs() {
+        return confirmTimeoutMs;
     }
 
     @Override
