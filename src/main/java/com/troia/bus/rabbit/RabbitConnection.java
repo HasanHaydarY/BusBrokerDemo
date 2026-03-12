@@ -79,11 +79,9 @@ public class RabbitConnection implements BusConnection {
 
         channel.exchangeDeclare(exchange, BuiltinExchangeType.TOPIC, true, false, null);
 
-        // TEST: exchange'e gelen mesajları görmek için geçici queue
-        // Production'da bu blok kaldırılmalı — queue/bind consumer'ın sorumluluğu
-        String testQueue = "test.q." + channelName;
-        channel.queueDeclare(testQueue, true, false, false, null);
-        channel.queueBind(testQueue, exchange, "#");
+        String queue = channelName;
+        channel.queueDeclare(queue, true, false, false, null);
+        channel.queueBind(queue, exchange, "#");
 
         AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
                 .contentType("application/json")
@@ -121,6 +119,6 @@ public class RabbitConnection implements BusConnection {
     }
 
     private static String toExchange(String channelName) {
-        return "bus." + channelName;
+        return channelName;
     }
 }

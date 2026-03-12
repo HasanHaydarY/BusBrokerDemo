@@ -99,6 +99,6 @@ public class KafkaConnection implements BusConnection {
     }
 
     private static String toTopic(String channelName) {
-        return "bus." + channelName;
+        return channelName;
     }
 }
